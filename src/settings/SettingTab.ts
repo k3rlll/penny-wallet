@@ -56,14 +56,23 @@ export class PennyWalletSettingTab extends PluginSettingTab {
     new Setting(group)
       .setName(t('settings.folderName'))
       .setDesc(t('settings.folderNameDesc'))
-      .addText(text => text
-        .setValue(config.folderName)
-        .onChange((value) => {
-          if (value.trim()) {
-            this.walletFile.updateConfig({ folderName: value.trim() })
+      .addText(text => {
+        text.setValue(config.folderName)
+        const commitFolder = () => {
+          const val = text.getValue().trim()
+          if (val && val !== this.walletFile.getConfig().folderName) {
+            this.walletFile.updateConfig({ folderName: val })
             void this.walletFile.saveConfig()
           }
-        }))
+        }
+        text.inputEl.addEventListener('blur', commitFolder)
+        text.inputEl.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            text.inputEl.blur()
+          }
+        })
+      })
 
     new Setting(group)
       .setName(t('settings.defaultWallet'))

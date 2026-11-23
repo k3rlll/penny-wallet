@@ -2,6 +2,11 @@
 
 All notable changes to PennyWallet will be documented in this file.
 
+## [0.0.18] - 2026-11-24
+
+### Fixed
+- Automatically detect `notes/PennyWallet/penny-wallet.json` (and `notes/` subfolder) on startup so `PennyWallet/` is never recreated in the vault root directory
+
 ## [0.0.17] - 2026-11-24
 
 ### Changed

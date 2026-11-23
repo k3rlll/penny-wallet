@@ -15,6 +15,7 @@ import type { Currency, Wallet, FrontmatterIssue, OrphanedWalletIssue, Validatio
 import { getWalletCurrency } from '../utils'
 
 const DEFAULT_FOLDER_CONFIG_PATH = normalizePath(`${DEFAULT_CONFIG.folderName}/penny-wallet.json`)
+const NOTES_FOLDER_CONFIG_PATH = normalizePath('notes/PennyWallet/penny-wallet.json')
 const LEGACY_ROOT_CONFIG_PATH = normalizePath('.penny-wallet.json')
 const TABLE_HEADER = `| Date | Type | Wallet | From | To | Category | Note | Tags | Amount | CreatedAt |
 |------|------|--------|------|----|----------|------|------|--------|-----------|`
@@ -231,26 +232,62 @@ export class WalletFile {
     return null
   }
 
+  private async hasNotesFolder(): Promise<boolean> {
+    return Boolean(
+      this.app.vault.getFolderByPath('notes/PennyWallet') ||
+      this.app.vault.getFolderByPath('notes') ||
+      await this.app.vault.adapter.exists('notes/PennyWallet') ||
+      await this.app.vault.adapter.exists('notes')
+    )
+  }
+
   async loadConfig(): Promise<PennyWalletConfig> {
     this.createdDefaultConfigOnLastLoad = false
 
-    const primaryRaw = await this.readRawConfigPath(DEFAULT_FOLDER_CONFIG_PATH)
-    if (primaryRaw !== null) {
-      try {
-        const parsed = JSON.parse(primaryRaw) as Partial<PennyWalletConfig>
-        this.config = { ...DEFAULT_CONFIG, ...parsed, options: this.normalizeOptions(parsed) }
-      } catch {
-        this.config = { ...DEFAULT_CONFIG }
+    const candidates = [
+      { path: NOTES_FOLDER_CONFIG_PATH, folder: 'notes/PennyWallet' },
+      { path: DEFAULT_FOLDER_CONFIG_PATH, folder: DEFAULT_CONFIG.folderName },
+    ]
+
+    for (const { path, folder } of candidates) {
+      const raw = await this.readRawConfigPath(path)
+      if (raw !== null) {
+        try {
+          const parsed = JSON.parse(raw) as Partial<PennyWalletConfig>
+          const resolvedFolder = folder !== DEFAULT_CONFIG.folderName
+            ? folder
+            : (parsed.folderName || folder)
+          this.config = {
+            ...DEFAULT_CONFIG,
+            ...parsed,
+            folderName: resolvedFolder,
+            options: this.normalizeOptions(parsed),
+          }
+          if (parsed.folderName !== resolvedFolder) {
+            await this.saveConfig()
+          }
+        } catch {
+          this.config = { ...DEFAULT_CONFIG }
+        }
+        return this.config
       }
-      return this.config
     }
 
-    // Legacy fallback: migrate root .penny-wallet.json into PennyWallet/penny-wallet.json
+    // Legacy fallback: migrate root .penny-wallet.json into folder penny-wallet.json
     const legacyRaw = await this.readRawConfigPath(LEGACY_ROOT_CONFIG_PATH)
     if (legacyRaw !== null) {
       try {
         const parsed = JSON.parse(legacyRaw) as Partial<PennyWalletConfig>
-        this.config = { ...DEFAULT_CONFIG, ...parsed, options: this.normalizeOptions(parsed) }
+        const notesExists = await this.hasNotesFolder()
+        const resolvedFolder = notesExists
+          ? 'notes/PennyWallet'
+          : (parsed.folderName || DEFAULT_CONFIG.folderName)
+        this.config = {
+          ...DEFAULT_CONFIG,
+          ...parsed,
+          folderName: resolvedFolder,
+          options: this.normalizeOptions(parsed),
+        }
         await this.saveConfig()
       } catch {
         this.config = { ...DEFAULT_CONFIG }
@@ -258,14 +295,17 @@ export class WalletFile {
       return this.config
     }
 
-    // Truly first launch: create locale-aware default config inside PennyWallet/penny-wallet.json
-    await this.ensureFolder()
+    // Truly first launch: create locale-aware default config
+    const notesExists = await this.hasNotesFolder()
+    const initialFolder = notesExists ? 'notes/PennyWallet' : DEFAULT_CONFIG.folderName
     const cashName = this.getLocaleCashName()
     this.config = {
       ...DEFAULT_CONFIG,
+      folderName: initialFolder,
       wallets: [{ ...DEFAULT_CONFIG.wallets[0], name: cashName }],
       defaultWallet: cashName,
     }
+    await this.ensureFolder()
     await this.saveConfig()
     this.createdDefaultConfigOnLastLoad = true
     return this.config
