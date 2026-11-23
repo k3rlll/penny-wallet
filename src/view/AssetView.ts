@@ -1,17 +1,19 @@
 import { Events, ItemView, WorkspaceLeaf } from 'obsidian'
 import { WalletFile } from '../io/WalletFile'
 import { t, formatMonthLabel, formatYearMonth } from '../i18n'
-import { formatAmount } from '../utils'
+import { formatAmount, getWalletCurrency } from '../utils'
 import { renderSharedHeader } from './SharedHeader'
 import { Chart } from 'chart.js'
 import { MonthData, drawNetChart, drawPie, getMonthRange } from './charts'
 import { renderCard } from './components'
+import type { Currency } from '../types'
 
 export const ASSET_VIEW_TYPE = 'penny-wallet-asset'
 
 export class AssetView extends ItemView {
   private walletFile: WalletFile
   private range: number = 6
+  private selectedCurrency: Currency = 'USD'
   private charts: Chart[] = []
 
   private clearCharts() {
@@ -52,14 +54,18 @@ export class AssetView extends ItemView {
     contentEl.addClass('pw-asset')
 
     const months = getMonthRange(this.range)
+    const currencies = this.walletFile.getActiveCurrencies(true)
+    if (!currencies.includes(this.selectedCurrency)) {
+      this.selectedCurrency = currencies[0] ?? 'USD'
+    }
 
     const [walletBalances, summaries, netTimeline] = await Promise.all([
       this.walletFile.calculateAllWalletBalances(),
-      this.walletFile.getMonthSummaries(months),
-      this.walletFile.getNetAssetTimeline(months),
+      this.walletFile.getMonthSummariesByCurrency(months, this.selectedCurrency),
+      this.walletFile.getNetAssetTimeline(months, this.selectedCurrency),
     ])
 
-    const netAsset = this.walletFile.computeNetAsset(walletBalances)
+    const netAssetsByCurrency = this.walletFile.computeNetAssetsByCurrency(walletBalances)
     const dp = this.walletFile.getConfig().decimalPlaces ?? 0
 
     renderSharedHeader(contentEl, {
@@ -68,6 +74,20 @@ export class AssetView extends ItemView {
       activeView: 'asset',
       yearMonth: null,
     })
+
+    if (currencies.length > 1) {
+      const curRow = contentEl.createDiv('pw-type-pills')
+      for (const cur of currencies) {
+        const btn = curRow.createEl('button', {
+          text: t(`label.currency.${cur}`),
+          cls: 'pw-pill pw-pill-color-neutral' + (this.selectedCurrency === cur ? ' is-active' : ''),
+        })
+        btn.addEventListener('click', () => {
+          this.selectedCurrency = cur
+          void this.render()
+        })
+      }
+    }
 
     // ── 2-column grid ────────────────────────────────────────────────────────
     const grid = contentEl.createDiv('pw-grid-2 pw-asset-grid')
@@ -81,37 +101,49 @@ export class AssetView extends ItemView {
 
     for (const { wallet, balance } of walletBalances) {
       if (wallet.status === 'archived') continue
+      const wCurrency = getWalletCurrency(wallet)
       const row = walletList.createDiv('pw-asset-wallet-row')
       const left = row.createDiv('pw-wallet-left')
       left.createEl('span', {
         text: t(`label.walletType.${wallet.type}`),
         cls: `pw-wallet-badge pw-badge-${wallet.type}`,
       })
+      left.createEl('span', {
+        text: wCurrency,
+        cls: 'pw-wallet-badge',
+      })
       left.createEl('span', { text: wallet.name, cls: 'pw-wallet-name' })
 
       const displayBalance = wallet.type === 'creditCard' ? -balance : balance
+      const prefix = displayBalance < 0 ? '-' : ''
       row.createEl('span', {
-        text: formatAmount(Math.abs(displayBalance), dp),
+        text: prefix + formatAmount(Math.abs(displayBalance), dp, wCurrency),
         cls: 'pw-wallet-balance' + (displayBalance < 0 ? ' is-negative' : ''),
       })
     }
 
-    const netRow = walletCard.createDiv('pw-asset-wallet-row pw-net-asset-row')
-    netRow.createEl('span', { text: t('dash.netAsset'), cls: 'pw-net-label' })
-    netRow.createEl('span', {
-      text: formatAmount(Math.abs(netAsset), dp),
-      cls: 'pw-net-value' + (netAsset < 0 ? ' is-negative' : ''),
-    })
+    for (const [cur, netAsset] of netAssetsByCurrency) {
+      const netRow = walletCard.createDiv('pw-asset-wallet-row pw-net-asset-row')
+      const labelSuffix = netAssetsByCurrency.size > 1 ? ` (${cur})` : ''
+      netRow.createEl('span', { text: `${t('dash.netAsset')}${labelSuffix}`, cls: 'pw-net-label' })
+      const prefix = netAsset < 0 ? '-' : ''
+      netRow.createEl('span', {
+        text: prefix + formatAmount(Math.abs(netAsset), dp, cur),
+        cls: 'pw-net-value' + (netAsset < 0 ? ' is-negative' : ''),
+      })
+    }
 
-    // Asset allocation pie (≥2 positive-balance non-credit wallets)
+    // Asset allocation pie (≥2 positive-balance non-credit wallets in selectedCurrency)
     const assetMap = new Map<string, number>()
     for (const { wallet, balance } of walletBalances) {
       if (wallet.status === 'archived') continue
       if (wallet.type === 'creditCard') continue
+      if (getWalletCurrency(wallet) !== this.selectedCurrency) continue
       if (balance > 0) assetMap.set(wallet.name, balance)
     }
+    const chartSuffix = currencies.length > 1 ? ` (${this.selectedCurrency})` : ''
     if (assetMap.size >= 2) {
-      const assetCard = renderCard(leftCol, { title: t('dash.assetAllocation') })
+      const assetCard = renderCard(leftCol, { title: `${t('dash.assetAllocation')}${chartSuffix}` })
       this.charts.push(drawPie(assetCard, assetMap, dp))
     }
 
@@ -121,7 +153,7 @@ export class AssetView extends ItemView {
     // Net asset trend card (with range picker inside)
     const netCard = renderCard(rightCol)  // no title — header row holds it
     const netCardHeader = netCard.createDiv('pw-card-header-row')
-    netCardHeader.createEl('div', { text: t('asset.netAssetTrend'), cls: 'pw-card-title' })
+    netCardHeader.createEl('div', { text: `${t('asset.netAssetTrend')}${chartSuffix}`, cls: 'pw-card-title' })
     const rangeRow = netCardHeader.createDiv('pw-range-row')
     for (const r of [3, 6, 12]) {
       rangeRow.createEl('button', {

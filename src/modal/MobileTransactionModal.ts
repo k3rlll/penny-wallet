@@ -2,8 +2,8 @@ import { setIcon } from 'obsidian'
 import { TransactionType, PennyWalletConfig } from '../types'
 import { t } from '../i18n'
 import { TransactionModal } from './TransactionModal'
-import { formatMobileHeroAmount } from '../utils'
-import { getTransferWalletCandidates } from './transactionState'
+import { formatMobileHeroAmount, getCurrencySymbol, getWalletCurrency } from '../utils'
+import { getTransferWalletCandidates, isCrossCurrencyTransfer } from './transactionState'
 import { openBottomSheetPicker, openBottomSheetShell, type BottomSheetOption } from './BottomSheetPicker'
 import { openTagPicker } from './TagPicker'
 import { MobileCalculatorPad } from './MobileCalculatorPad'
@@ -205,22 +205,54 @@ export class MobileTransactionModal extends TransactionModal {
       this.addMobileBottomSheetRow(
         this.mobileRowsEl,
         t('modal.fromWallet'),
-        this.fromWallet || '—',
-        this.withEmptyOption(fromWallets.map(w => ({ key: w.name, label: w.name }))),
+        this.fromWallet ? `${this.fromWallet} (${this.walletFile.getWalletCurrency(this.fromWallet)})` : '—',
+        this.withEmptyOption(fromWallets.map(w => ({ key: w.name, label: `${w.name} (${getWalletCurrency(w)})` }))),
         () => this.fromWallet,
-        (key) => { this.fromWallet = key },
+        (key) => {
+          this.fromWallet = key
+          this.updateAmountDisplay()
+          this.renderMobileRows(config)
+        },
         true,
       )
 
       this.addMobileBottomSheetRow(
         this.mobileRowsEl,
         t('modal.toWallet'),
-        this.toWallet || '—',
-        this.withEmptyOption(toWallets.map(w => ({ key: w.name, label: w.name }))),
+        this.toWallet ? `${this.toWallet} (${this.walletFile.getWalletCurrency(this.toWallet)})` : '—',
+        this.withEmptyOption(toWallets.map(w => ({ key: w.name, label: `${w.name} (${getWalletCurrency(w)})` }))),
         () => this.toWallet,
-        (key) => { this.toWallet = key },
+        (key) => {
+          this.toWallet = key
+          this.updateAmountDisplay()
+          this.renderMobileRows(config)
+        },
         true,
       )
+
+      if (isCrossCurrencyTransfer(config, this.fromWallet, this.toWallet)) {
+        const targetCurrency = this.walletFile.getWalletCurrency(this.toWallet)
+        const targetSymbol = getCurrencySymbol(targetCurrency)
+        const toAmountRow = this.mobileRowsEl.createDiv('pw-mobile-row')
+        const toAmountLabelEl = toAmountRow.createEl('span', {
+          cls: 'pw-mobile-row-label',
+          text: `${t('modal.toAmount')} (${targetSymbol})`,
+        })
+        toAmountLabelEl.createEl('span', { text: '*', cls: 'pw-field-required', attr: { 'aria-hidden': 'true' } })
+        const dp = config.decimalPlaces ?? 0
+        const toAmountInput = toAmountRow.createEl('input', {
+          type: 'number',
+          cls: 'pw-mobile-note-input',
+          placeholder: dp === 2 ? '0.00' : '0',
+        })
+        toAmountInput.value = this.toAmount
+        toAmountInput.setAttribute('min', '0')
+        toAmountInput.setAttribute('step', dp === 2 ? '0.01' : '1')
+        toAmountInput.setAttribute('enterkeyhint', 'done')
+        toAmountInput.addEventListener('focus', () => this.closeCalculatorPad())
+        toAmountInput.addEventListener('input', () => { this.toAmount = toAmountInput.value })
+        toAmountInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') toAmountInput.blur() })
+      }
     } else {
       const walletOptions = this.type === 'income'
         ? activeWallets.filter(w => w.type !== 'creditCard')
@@ -229,10 +261,13 @@ export class MobileTransactionModal extends TransactionModal {
       this.addMobileBottomSheetRow(
         this.mobileRowsEl,
         t('modal.wallet'),
-        this.wallet || '—',
-        this.withEmptyOption(walletOptions.map(w => ({ key: w.name, label: w.name }))),
+        this.wallet ? `${this.wallet} (${this.walletFile.getWalletCurrency(this.wallet)})` : '—',
+        this.withEmptyOption(walletOptions.map(w => ({ key: w.name, label: `${w.name} (${getWalletCurrency(w)})` }))),
         () => this.wallet,
-        (key) => { this.wallet = key },
+        (key) => {
+          this.wallet = key
+          this.updateAmountDisplay()
+        },
         true,
       )
     }
@@ -445,7 +480,9 @@ export class MobileTransactionModal extends TransactionModal {
   private updateAmountDisplay() {
     if (!this.mobileAmountEl) return
     const isEmpty = this.amount === ''
-    this.mobileAmountEl.textContent = formatMobileHeroAmount(this.amount, this.isRefund)
+    const sourceWalletName = this.type === 'transfer' ? this.fromWallet : this.wallet
+    const currency = this.walletFile.getWalletCurrency(sourceWalletName)
+    this.mobileAmountEl.textContent = formatMobileHeroAmount(this.amount, this.isRefund, currency)
     this.mobileAmountEl.toggleClass('is-empty', isEmpty)
   }
 

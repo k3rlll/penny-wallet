@@ -716,18 +716,21 @@ export class DetailView extends ItemView {
       }
     }
 
-    let subIncome = 0, subExpense = 0
-    for (const tx of filtered) {
-      if (tx.type === 'income') subIncome += tx.amount
-      if (tx.type === 'expense') subExpense += tx.amount
+    const currencies = this.walletFile.getActiveCurrencies(true)
+    const expParts: string[] = []
+    const incParts: string[] = []
+    for (const cur of currencies) {
+      const summary = this.walletFile.computeSummary(filtered, cur)
+      expParts.push(formatAmount(summary.expense, this.cachedDp, cur))
+      incParts.push(formatAmount(summary.income, this.cachedDp, cur))
     }
     this.subtotalEl.empty()
     this.subtotalEl.createEl('span', {
-      text: `${t('detail.subtotalExpense')}: ${formatAmount(subExpense, this.cachedDp)}`,
+      text: `${t('detail.subtotalExpense')}: ${expParts.join(' · ')}`,
       cls: 'pw-subtotal-expense',
     })
     this.subtotalEl.createEl('span', {
-      text: `${t('detail.subtotalIncome')}: ${formatAmount(subIncome, this.cachedDp)}`,
+      text: `${t('detail.subtotalIncome')}: ${incParts.join(' · ')}`,
       cls: 'pw-subtotal-income',
     })
   }
@@ -769,7 +772,13 @@ export class DetailView extends ItemView {
     }
 
     // col4: amount (V-center, large)
-    const amount = buildAmountDisplay(tx, dp)
+    const currency = tx.type === 'transfer'
+      ? this.walletFile.getWalletCurrency(tx.fromWallet)
+      : this.walletFile.getWalletCurrency(tx.wallet)
+    const toCurrency = tx.type === 'transfer'
+      ? this.walletFile.getWalletCurrency(tx.toWallet)
+      : undefined
+    const amount = buildAmountDisplay(tx, dp, currency, toCurrency)
     row.createEl('span', { text: amount.text, cls: amount.className })
 
     row.addEventListener('click', () => {

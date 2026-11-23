@@ -1,3 +1,13 @@
+import { CURRENCY_SYMBOLS, type Currency } from './types'
+
+export function getCurrencySymbol(currency?: Currency): string {
+  return CURRENCY_SYMBOLS[currency ?? 'USD'] ?? '$'
+}
+
+export function getWalletCurrency(wallet?: { currency?: Currency } | null): Currency {
+  return wallet?.currency === 'KZT' ? 'KZT' : 'USD'
+}
+
 export function currentYearMonth(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
@@ -13,8 +23,13 @@ export function isAfterCurrentMonth(ym: string): boolean {
   return ym > currentYearMonth()
 }
 
-export function formatAmount(n: number, dp: 0 | 2 = 0): string {
-  return n.toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp })
+export function formatAmount(n: number, dp: 0 | 2 = 0, currency?: Currency): string {
+  if (!currency) {
+    return n.toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp })
+  }
+  const sign = n < 0 ? '-' : ''
+  const numStr = Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp })
+  return `${sign}${getCurrencySymbol(currency)}${numStr}`
 }
 
 // CJK Unified Ideographs (Traditional/Simplified Chinese)
@@ -43,8 +58,8 @@ export function formatHeroAmount(raw: string): string {
   return `${intStr}.${decPart}`
 }
 
-export function formatMobileHeroAmount(raw: string, isRefund: boolean): string {
-  const amount = `$${formatHeroAmount(raw)}`
+export function formatMobileHeroAmount(raw: string, isRefund: boolean, currency: Currency = 'USD'): string {
+  const amount = `${getCurrencySymbol(currency)}${formatHeroAmount(raw)}`
   return isRefund && raw !== '' ? `+ ${amount}` : amount
 }
 

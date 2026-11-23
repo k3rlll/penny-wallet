@@ -12,6 +12,10 @@ const translations = {
     'label.walletType.bank': '銀行帳戶',
     'label.walletType.creditCard': '信用卡',
 
+    // Currencies
+    'label.currency.USD': 'USD ($)',
+    'label.currency.KZT': 'KZT (₸)',
+
     // Default expense categories
     'label.cat.food': '飲食',
     'label.cat.clothing': '服飾',
@@ -124,11 +128,13 @@ const translations = {
     'tagPicker.tooLong': '長度超過上限（中文 5 字 / 英數 10 字）無法新增',
     'tagPicker.rowPlaceholder': '選擇標籤',
     'modal.amount': '金額',
+    'modal.toAmount': '轉入金額',
     'modal.isRefund': '這是退款',
     'modal.isRefund.hint': '金額會記為負支出（用於退貨、退款場景）',
 
     // Validation errors
     'err.amountRequired': '請輸入金額',
+    'err.toAmountRequired': '請輸入轉入金額',
     'err.amountPositive': '金額必須大於 0',
     'err.amountInteger': '目前設定不允許小數，請輸入整數金額',
     'err.walletRequired': '請選擇帳戶',
@@ -157,6 +163,7 @@ const translations = {
     'settings.addWallet': '新增帳戶',
     'settings.walletName': '名稱',
     'settings.walletType': '類型',
+    'settings.walletCurrency': '幣別',
     'settings.initialBalance': '初始餘額',
     'settings.includeInNetAssetOn': '目前：納入淨資產',
     'settings.includeInNetAssetOff': '目前：不納入淨資產',
@@ -230,6 +237,9 @@ const translations = {
     'label.walletType.cash': 'Cash',
     'label.walletType.bank': 'Bank Account',
     'label.walletType.creditCard': 'Credit Card',
+
+    'label.currency.USD': 'USD ($)',
+    'label.currency.KZT': 'KZT (₸)',
 
     'label.cat.food': 'Food',
     'label.cat.clothing': 'Clothing',
@@ -333,10 +343,12 @@ const translations = {
     'tagPicker.tooLong': 'Too long to add (max 5 CJK / 10 ASCII chars)',
     'tagPicker.rowPlaceholder': 'Select tags',
     'modal.amount': 'Amount',
+    'modal.toAmount': 'Received amount',
     'modal.isRefund': 'This is a refund',
     'modal.isRefund.hint': 'Stored as a negative expense (for refunds and returns)',
 
     'err.amountRequired': 'Amount is required',
+    'err.toAmountRequired': 'Received amount is required',
     'err.amountPositive': 'Amount must be greater than 0',
     'err.amountInteger': 'Decimal amounts are not allowed. Please enter a whole number.',
     'err.walletRequired': 'Please select an account',
@@ -364,6 +376,7 @@ const translations = {
     'settings.addWallet': 'Add account',
     'settings.walletName': 'Name',
     'settings.walletType': 'Type',
+    'settings.walletCurrency': 'Currency',
     'settings.initialBalance': 'Initial balance',
     'settings.includeInNetAssetOn': 'Current: included in net assets',
     'settings.includeInNetAssetOff': 'Current: excluded from net assets',

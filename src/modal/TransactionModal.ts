@@ -1,9 +1,9 @@
 import { App, Modal, Notice, setIcon } from 'obsidian'
 import { Transaction, TransactionType, TransactionModalParams, PennyWalletConfig } from '../types'
 import { WalletFile } from '../io/WalletFile'
-import { dateToYearMonth } from '../utils'
+import { dateToYearMonth, getCurrencySymbol, getWalletCurrency } from '../utils'
 import { t } from '../i18n'
-import { parseAmountForEdit, getCategoryOptions as getCategoryOptionsFromState, validateTransactionForm, buildTransactionPayload, getTransferWalletCandidates, type TransactionFormState } from './transactionState'
+import { parseAmountForEdit, getCategoryOptions as getCategoryOptionsFromState, validateTransactionForm, buildTransactionPayload, getTransferWalletCandidates, isCrossCurrencyTransfer, type TransactionFormState } from './transactionState'
 import { buildTagInput } from './TagInput'
 import { ConfirmModal } from './ConfirmModal'
 
@@ -25,6 +25,7 @@ export class TransactionModal extends Modal {
   protected note: string = ''
   protected tags: string[] = []
   protected amount: string = ''
+  protected toAmount: string = ''
   protected isRefund: boolean = false
 
   // DOM refs
@@ -75,6 +76,7 @@ export class TransactionModal extends Modal {
       this.tags = tx.tags ? [...tx.tags] : []
       const parsed = parseAmountForEdit(tx.amount)
       this.amount = parsed.display
+      this.toAmount = tx.toAmount != null ? String(tx.toAmount) : ''
       this.isRefund = parsed.isRefund
     } else {
       this.type = (this.params.type as TransactionType) ?? 'expense'
@@ -89,6 +91,7 @@ export class TransactionModal extends Modal {
       this.note = this.params.note ?? ''
       this.tags = this.params.tags ? [...this.params.tags] : []
       this.amount = this.params.amount != null ? String(this.params.amount) : ''
+      this.toAmount = this.params.toAmount != null ? String(this.params.toAmount) : ''
     }
   }
 
@@ -224,9 +227,12 @@ export class TransactionModal extends Modal {
           ? activeWallets.filter(w => w.type !== 'creditCard')
           : activeWallets
         return this.buildSelect(
-          walletOptions.map(w => ({ value: w.name, label: w.name })),
+          walletOptions.map(w => ({ value: w.name, label: `${w.name} (${getWalletCurrency(w)})` })),
           this.wallet,
-          val => { this.wallet = val }
+          val => {
+            this.wallet = val
+            this.renderFields(config, false)
+          }
         )
       }, true)
 
@@ -238,16 +244,22 @@ export class TransactionModal extends Modal {
 
       this.addField(this.fieldsEl, t('modal.fromWallet'), () =>
         this.buildSelect(
-          fromWallets.map(w => ({ value: w.name, label: w.name })),
+          fromWallets.map(w => ({ value: w.name, label: `${w.name} (${getWalletCurrency(w)})` })),
           this.fromWallet,
-          val => { this.fromWallet = val }
+          val => {
+            this.fromWallet = val
+            this.renderFields(config, false)
+          }
         ), true)
 
       this.addField(this.fieldsEl, t('modal.toWallet'), () =>
         this.buildSelect(
-          toWallets.map(w => ({ value: w.name, label: w.name })),
+          toWallets.map(w => ({ value: w.name, label: `${w.name} (${getWalletCurrency(w)})` })),
           this.toWallet,
-          val => { this.toWallet = val }
+          val => {
+            this.toWallet = val
+            this.renderFields(config, false)
+          }
         ), true)
     }
 
@@ -268,11 +280,17 @@ export class TransactionModal extends Modal {
   }
 
   private buildAmountRow(autoFocus: boolean) {
+    const config = this.walletFile.getConfig()
+    const sourceWalletName = this.type === 'transfer' ? this.fromWallet : this.wallet
+    const sourceCurrency = this.walletFile.getWalletCurrency(sourceWalletName)
+    const sourceSymbol = getCurrencySymbol(sourceCurrency)
+
     const amountRow = this.fieldsEl.createDiv('pw-field-row')
-    amountRow.createEl('label', { text: t('modal.amount'), cls: 'pw-field-label' })
+    const amountLabel = amountRow.createEl('label', { text: `${t('modal.amount')} (${sourceSymbol})`, cls: 'pw-field-label' })
+    amountLabel.createEl('span', { text: '*', cls: 'pw-field-required', attr: { 'aria-hidden': 'true' } })
     const amountWrapper = amountRow.createDiv('pw-amount-field-wrapper pw-field-input')
     this.amountPrefixEl = amountWrapper.createSpan({ cls: 'pw-amount-prefix', text: '+' })
-    const dp = this.walletFile.getConfig().decimalPlaces ?? 0
+    const dp = config.decimalPlaces ?? 0
     const amountInput = amountWrapper.createEl('input', { type: 'number', placeholder: dp === 2 ? '0.00' : '0' })
     amountInput.value = this.amount
     amountInput.setAttribute('min', '0')
@@ -292,6 +310,33 @@ export class TransactionModal extends Modal {
       void this.handleConfirm()
     })
     this.updateDesktopAmountPrefix()
+
+    if (this.type === 'transfer' && isCrossCurrencyTransfer(config, this.fromWallet, this.toWallet)) {
+      const targetCurrency = this.walletFile.getWalletCurrency(this.toWallet)
+      const targetSymbol = getCurrencySymbol(targetCurrency)
+      const toAmountRow = this.fieldsEl.createDiv('pw-field-row')
+      const toAmountLabel = toAmountRow.createEl('label', { text: `${t('modal.toAmount')} (${targetSymbol})`, cls: 'pw-field-label' })
+      toAmountLabel.createEl('span', { text: '*', cls: 'pw-field-required', attr: { 'aria-hidden': 'true' } })
+      const toAmountWrapper = toAmountRow.createDiv('pw-amount-field-wrapper pw-field-input')
+      const toAmountInput = toAmountWrapper.createEl('input', { type: 'number', placeholder: dp === 2 ? '0.00' : '0' })
+      toAmountInput.value = this.toAmount
+      toAmountInput.setAttribute('min', '0')
+      toAmountInput.setAttribute('step', dp === 2 ? '0.01' : '1')
+      toAmountInput.setAttribute('enterkeyhint', 'done')
+      toAmountInput.addEventListener('input', () => {
+        this.toAmount = toAmountInput.value
+      })
+      toAmountInput.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return
+        e.preventDefault()
+        if (!this.toAmount) {
+          toAmountInput.blur()
+          return
+        }
+        void this.handleConfirm()
+      })
+    }
+
     if (autoFocus) setTimeout(() => amountInput.focus(), 50) // wait for modal open animation to complete
   }
 
@@ -372,6 +417,7 @@ export class TransactionModal extends Modal {
     if (newType === 'expense' || newType === 'income') {
       this.fromWallet = ''
       this.toWallet = ''
+      this.toAmount = ''
     } else {
       this.wallet = ''
     }
@@ -406,6 +452,7 @@ export class TransactionModal extends Modal {
       note: this.note,
       tags: this.tags,
       amount: this.amount,
+      toAmount: this.toAmount,
       isRefund: this.isRefund,
     }
   }
@@ -446,7 +493,7 @@ export class TransactionModal extends Modal {
     if (!this.validate()) return
     this.isConfirming = true
 
-    const newTx = buildTransactionPayload(this.getFormState())
+    const newTx = buildTransactionPayload(this.getFormState(), this.walletFile.getConfig())
     const newYearMonth = dateToYearMonth(this.date)
 
     try {

@@ -13,7 +13,8 @@ const ALLOWLIST = new Set([
   'Markdown',
   'Stage',
   'LinePay', 'PayPal',
-  'TWD', 'USD', 'JPY', 'EUR',
+  'TWD', 'USD', 'KZT', 'JPY', 'EUR',
+  'CJK', 'ASCII',
   'Enter', 'Esc', 'Tab', 'Shift', 'Ctrl', 'Alt', 'Cmd', // keyboard keycaps
 ])
 

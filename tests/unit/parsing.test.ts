@@ -229,6 +229,18 @@ describe('formatRow', () => {
     const parsed = parseRow(row)
     expect(parsed?.amount).toBe(-400)
   })
+
+  it('round-trips cross-currency transfer amount->toAmount', () => {
+    const tx: Transaction = {
+      date: '04/20', type: 'transfer', fromWallet: 'USD Bank', toWallet: 'Kaspi KZT',
+      category: 'account_transfer', note: 'FX', amount: 100, toAmount: 50000,
+    }
+    const row = formatRow(tx)
+    expect(row).toContain('| 100->50000 |')
+    const parsed = parseRow(row)
+    expect(parsed?.amount).toBe(100)
+    expect(parsed?.toAmount).toBe(50000)
+  })
 })
 
 // ── buildMonthContent ─────────────────────────────────────────────────────────

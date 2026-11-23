@@ -184,4 +184,16 @@ describe('formatMobileHeroAmount', () => {
   it('puts refund plus before currency symbol', () => {
     expect(formatMobileHeroAmount('123', true)).toBe('+ $123')
   })
+
+  it('formats KZT currency symbol ₸', () => {
+    expect(formatMobileHeroAmount('5000', false, 'KZT')).toBe('₸5,000')
+    expect(formatMobileHeroAmount('5000', true, 'KZT')).toBe('+ ₸5,000')
+  })
+})
+
+describe('formatAmount with currency', () => {
+  it('includes $ for USD and ₸ for KZT', () => {
+    expect(formatAmount(100, 0, 'USD')).toBe('$100')
+    expect(formatAmount(50000, 0, 'KZT')).toContain('₸')
+  })
 })

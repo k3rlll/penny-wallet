@@ -69,6 +69,20 @@ describe('buildAmountDisplay', () => {
     const r = buildAmountDisplay({ ...base, amount: 12.5 }, 2)
     expect(r.text).toBe('-12.50')
   })
+  it('formats with currency symbol and cross-currency transfer arrow', () => {
+    const expKzt = buildAmountDisplay({ ...base, type: 'expense', amount: 2500 }, 0, 'KZT')
+    expect(expKzt.text).toBe('-₸2,500')
+    const xfer = buildAmountDisplay({
+      ...base,
+      type: 'transfer',
+      wallet: undefined,
+      fromWallet: 'USD Bank',
+      toWallet: 'Kaspi KZT',
+      amount: 100,
+      toAmount: 50000,
+    }, 0, 'USD', 'KZT')
+    expect(xfer.text).toBe('$100 → ₸50,000')
+  })
 })
 
 describe('buildLine3Display', () => {

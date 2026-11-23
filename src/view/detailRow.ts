@@ -1,4 +1,4 @@
-import type { Transaction } from '../types'
+import type { Currency, Transaction } from '../types'
 import { formatAmount } from '../utils'
 
 export type Line3Display =
@@ -19,6 +19,8 @@ export function buildWalletText(tx: Transaction): string {
 export function buildAmountDisplay(
   tx: Transaction,
   dp: 0 | 2 = 0,
+  currency?: Currency,
+  toCurrency?: Currency,
 ): { text: string; className: string } {
   const refund = isRefund(tx)
   const className = refund
@@ -32,7 +34,12 @@ export function buildAmountDisplay(
     : tx.type === 'income'  ? '+'
     : ''
   const displayAmount = refund ? -tx.amount : tx.amount
-  return { text: prefix + formatAmount(displayAmount, dp), className }
+  if (tx.type === 'transfer' && tx.toAmount !== undefined && (toCurrency || currency)) {
+    const fromText = formatAmount(tx.amount, dp, currency)
+    const toText = formatAmount(tx.toAmount, dp, toCurrency ?? currency)
+    return { text: `${fromText} → ${toText}`, className }
+  }
+  return { text: prefix + formatAmount(displayAmount, dp, currency), className }
 }
 
 export function buildLine3Display(tx: Transaction): Line3Display {

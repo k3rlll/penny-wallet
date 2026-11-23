@@ -3,8 +3,9 @@ import Sortable from 'sortablejs'
 import { WalletFile } from '../io/WalletFile'
 import { ConfirmModal } from '../modal/ConfirmModal'
 import { WalletEditModal } from '../modal/WalletEditModal'
-import { Wallet, WalletBalance, WalletType } from '../types'
+import { Currency, SUPPORTED_CURRENCIES, Wallet, WalletBalance, WalletType } from '../types'
 import { t, tn } from '../i18n'
+import { formatAmount, getWalletCurrency } from '../utils'
 
 export class PennyWalletSettingTab extends PluginSettingTab {
   private walletFile: WalletFile
@@ -175,6 +176,10 @@ export class PennyWalletSettingTab extends PluginSettingTab {
         text: t(`label.walletType.${wallet.type}`),
         cls: `pw-wallet-badge pw-badge-${wallet.type}`,
       })
+      info.createSpan({
+        text: getWalletCurrency(wallet),
+        cls: 'pw-wallet-badge',
+      })
       const descSpan = info.createSpan({
         text: wallet.includeInNetAsset
           ? t('settings.includeInNetAssetOn')
@@ -219,12 +224,15 @@ export class PennyWalletSettingTab extends PluginSettingTab {
     walletsWithTransactions: Set<string>,
   ): HTMLElement {
     const config = this.walletFile.getConfig()
+    const dp = config.decimalPlaces ?? 0
+    const wCurrency = getWalletCurrency(wallet)
     const wb = walletBalances.find(b => b.wallet.name === wallet.name)
     const currentBalance = wb?.balance ?? wallet.initialBalance
     const isDebt = wallet.type === 'creditCard'
+    const formattedBal = formatAmount(currentBalance, dp, wCurrency)
     const displayBalance = isDebt
-      ? `${t('settings.creditDebtPrefix')}${currentBalance.toLocaleString()}`
-      : currentBalance.toLocaleString()
+      ? `${t('settings.creditDebtPrefix')}${formattedBal}`
+      : formattedBal
 
     const row = createDiv('pw-wallet-row')
 
@@ -237,6 +245,7 @@ export class PennyWalletSettingTab extends PluginSettingTab {
     const info = row.createDiv('pw-wallet-row-info')
     info.createSpan({ text: wallet.name, cls: 'pw-wallet-row-name' })
     info.createSpan({ text: t(`label.walletType.${wallet.type}`), cls: `pw-wallet-badge pw-badge-${wallet.type}` })
+    info.createSpan({ text: wCurrency, cls: 'pw-wallet-badge' })
 
     row.createSpan({ text: displayBalance, cls: `pw-wallet-row-balance${isDebt ? ' is-debt' : ''}` })
 
@@ -301,6 +310,7 @@ export class PennyWalletSettingTab extends PluginSettingTab {
   private buildAddWalletForm(cardEl: HTMLElement): {
     getName: () => string
     getType: () => WalletType
+    getCurrency: () => Currency
     getBalance: () => number
     bindSubmitKey: (handler: () => void) => void
   } {
@@ -324,6 +334,16 @@ export class PennyWalletSettingTab extends PluginSettingTab {
     }
     typeSelect.value = 'cash'
 
+    let currency: Currency = 'USD'
+    const currencyField = formEl.createDiv('pw-add-wallet-field')
+    currencyField.createEl('label', { text: t('settings.walletCurrency'), cls: 'pw-setting-input-subtitle' })
+    const currencySelect = currencyField.createEl('select', { cls: 'pw-add-wallet-input' })
+    for (const cur of SUPPORTED_CURRENCIES) {
+      currencySelect.createEl('option', { value: cur, text: t(`label.currency.${cur}`) })
+    }
+    currencySelect.value = 'USD'
+    currencySelect.addEventListener('change', () => { currency = currencySelect.value as Currency })
+
     let balance = 0
     const balanceField = formEl.createDiv('pw-add-wallet-field')
     balanceField.createEl('label', { text: t('settings.initialBalance'), cls: 'pw-setting-input-subtitle' })
@@ -342,9 +362,10 @@ export class PennyWalletSettingTab extends PluginSettingTab {
     return {
       getName: () => name,
       getType: () => type,
+      getCurrency: () => currency,
       getBalance: () => balance,
       bindSubmitKey: (handler) => {
-        for (const el of [nameInput as HTMLElement, typeSelect as HTMLElement, balanceInput as HTMLElement]) {
+        for (const el of [nameInput as HTMLElement, typeSelect as HTMLElement, currencySelect as HTMLElement, balanceInput as HTMLElement]) {
           el.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') { e.preventDefault(); handler() }
           })
@@ -368,12 +389,13 @@ export class PennyWalletSettingTab extends PluginSettingTab {
       const config = this.walletFile.getConfig()
       const name = form.getName()
       const type = form.getType()
+      const currency = form.getCurrency()
       const balance = form.getBalance()
       if (!name) { new Notice(t('err.walletNameEmpty')); return }
       if (config.wallets.some(w => w.name === name)) { new Notice(t('err.walletNameDuplicate')); return }
       if ((type === 'cash' || type === 'bank') && balance < 0) { new Notice(t('err.cashBankNegativeBalance')); return }
       if (type === 'creditCard' && balance < 0) { new Notice(t('err.creditNegativeBalance')); return }
-      const newWallet: Wallet = { name, type, initialBalance: balance, status: 'active', includeInNetAsset: true }
+      const newWallet: Wallet = { name, type, currency, initialBalance: balance, status: 'active', includeInNetAsset: true }
       this.walletFile.updateConfig({ wallets: [...config.wallets, newWallet] })
       await this.walletFile.saveConfig()
       new Notice(tn('notice.walletAdded', { name }))

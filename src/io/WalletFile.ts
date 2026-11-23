@@ -11,7 +11,8 @@ import {
   DEFAULT_INCOME_CATEGORIES,
   DEFAULT_TRANSFER_CATEGORIES,
 } from '../types'
-import type { Wallet, FrontmatterIssue, OrphanedWalletIssue, ValidationIssue } from '../types'
+import type { Currency, Wallet, FrontmatterIssue, OrphanedWalletIssue, ValidationIssue } from '../types'
+import { getWalletCurrency } from '../utils'
 
 const ROOT_CONFIG_PATH = normalizePath('.penny-wallet.json')
 const TABLE_HEADER = `| Date | Type | Wallet | From | To | Category | Note | Tags | Amount | CreatedAt |
@@ -34,7 +35,7 @@ export function parseRow(line: string): Transaction | null {
     amountStr = cols[7]
   } else if (cols.length === 9) {
     // col[7] numeric → old format (amount, createdAt); non-numeric → tags present (no createdAt)
-    if (/^-?\d+(\.\d+)?$/.test(cols[7])) {
+    if (/^-?\d+(\.\d+)?(->-?\d+(\.\d+)?)?$/.test(cols[7])) {
       amountStr = cols[7]
       createdAtStr = cols[8]
     } else {
@@ -48,8 +49,18 @@ export function parseRow(line: string): Transaction | null {
     createdAtStr = cols[9]
   }
 
-  const amount = parseFloat(amountStr)
-  if (isNaN(amount)) return null
+  let amount: number
+  let toAmount: number | undefined
+  if (amountStr.includes('->')) {
+    const [fromPart, toPart] = amountStr.split('->')
+    amount = parseFloat(fromPart)
+    const parsedTo = parseFloat(toPart)
+    if (isNaN(amount) || isNaN(parsedTo)) return null
+    toAmount = parsedTo
+  } else {
+    amount = parseFloat(amountStr)
+    if (isNaN(amount)) return null
+  }
 
   // Legacy type mapping
   let txType = type as TransactionType
@@ -69,6 +80,7 @@ export function parseRow(line: string): Transaction | null {
     note:       note       === '-' ? '' : note,
     tags:       (tagsStr && tagsStr !== '-') ? tagsStr.split(',').filter(t => t.length > 0) : undefined,
     amount,
+    ...(toAmount !== undefined ? { toAmount } : {}),
     createdAt:  (createdAtStr && createdAtStr !== '-') ? createdAtStr : undefined,
   }
 }
@@ -82,7 +94,7 @@ export function formatRow(tx: Transaction): string {
   const cat = tx.category ?? '-'
   const note = tx.note || '-'
   const tags = tx.tags?.length ? tx.tags.join(',') : '-'
-  const amount = tx.amount
+  const amount = tx.toAmount !== undefined ? `${tx.amount}->${tx.toAmount}` : tx.amount
   const createdAt = tx.createdAt ?? '-'
   return `| ${d} | ${type} | ${wallet} | ${from} | ${to} | ${cat} | ${note} | ${tags} | ${amount} | ${createdAt} |`
 }
@@ -482,6 +494,7 @@ export class WalletFile {
       tx.date === target.date &&
       tx.type === target.type &&
       tx.amount === target.amount &&
+      (tx.toAmount ?? tx.amount) === (target.toAmount ?? target.amount) &&
       tx.note === target.note &&
       (tx.wallet ?? '') === (target.wallet ?? '') &&
       (tx.fromWallet ?? '') === (target.fromWallet ?? '') &&
@@ -615,10 +628,28 @@ export class WalletFile {
     }))
   }
 
-  computeNetAsset(walletBalances: WalletBalance[]): number {
+  getWalletCurrency(walletName?: string): Currency {
+    if (!walletName) return 'USD'
+    const w = this.config.wallets.find(wallet => wallet.name === walletName)
+    return getWalletCurrency(w)
+  }
+
+  getActiveCurrencies(includeArchivedInNetAsset = false): Currency[] {
+    const seen = new Set<Currency>()
+    for (const w of this.config.wallets) {
+      if (w.status === 'active' || (includeArchivedInNetAsset && w.includeInNetAsset)) {
+        seen.add(getWalletCurrency(w))
+      }
+    }
+    if (seen.size === 0) return ['USD']
+    return [...seen]
+  }
+
+  computeNetAsset(walletBalances: WalletBalance[], currency?: Currency): number {
     let net = 0
     for (const { wallet, balance } of walletBalances) {
       if (!wallet.includeInNetAsset) continue
+      if (currency && getWalletCurrency(wallet) !== currency) continue
       if (wallet.type === 'creditCard') {
         net -= balance  // creditCard balance = outstanding debt
       } else {
@@ -628,12 +659,22 @@ export class WalletFile {
     return net
   }
 
+  computeNetAssetsByCurrency(walletBalances: WalletBalance[]): Map<Currency, number> {
+    const currencies = this.getActiveCurrencies(true)
+    const map = new Map<Currency, number>()
+    for (const c of currencies) {
+      map.set(c, this.computeNetAsset(walletBalances, c))
+    }
+    return map
+  }
+
   // ── Summary for a single month ───────────────────────────────────────────────
 
-  computeSummary(transactions: Transaction[]): MonthSummary {
+  computeSummary(transactions: Transaction[], currency?: Currency): MonthSummary {
     let income = 0
     let expense = 0
     for (const tx of transactions) {
+      if (currency && this.getWalletCurrency(tx.wallet) !== currency) continue
       if (tx.type === 'income') income += tx.amount
       if (tx.type === 'expense') expense += tx.amount
     }
@@ -642,10 +683,11 @@ export class WalletFile {
   }
 
   /** Group transactions by category for pie chart */
-  groupByCategory(transactions: Transaction[], type: 'expense' | 'income'): Map<string, number> {
+  groupByCategory(transactions: Transaction[], type: 'expense' | 'income', currency?: Currency): Map<string, number> {
     const map = new Map<string, number>()
     for (const tx of transactions) {
       if (tx.type !== type) continue
+      if (currency && this.getWalletCurrency(tx.wallet) !== currency) continue
       const key = tx.category ?? ''
       map.set(key, (map.get(key) ?? 0) + tx.amount)
     }
@@ -724,7 +766,19 @@ export class WalletFile {
     return result
   }
 
-  async getNetAssetTimeline(targetMonths: string[]): Promise<Map<string, number>> {
+  /** Get month summaries filtered by wallet currency */
+  async getMonthSummariesByCurrency(yearMonths: string[], currency: Currency): Promise<Map<string, MonthSummary>> {
+    const result = new Map<string, MonthSummary>()
+    await Promise.all(yearMonths.map(async (ym) => {
+      const txs = await this.readMonth(ym)
+      if (txs.length > 0) {
+        result.set(ym, this.computeSummary(txs, currency))
+      }
+    }))
+    return result
+  }
+
+  async getNetAssetTimeline(targetMonths: string[], currency?: Currency): Promise<Map<string, number>> {
     const allAvailableMonths = this.getAllYearMonths()
     const lastTarget = targetMonths[targetMonths.length - 1]
     const relevantMonths = allAvailableMonths.filter(m => m <= lastTarget).sort()
@@ -744,7 +798,7 @@ export class WalletFile {
         this.applyTxToBalanceMap(tx, balanceMap)
       }
       if (targetMonths.includes(relevantMonths[i])) {
-        result.set(relevantMonths[i], this.computeNetAssetFromMap(balanceMap))
+        result.set(relevantMonths[i], this.computeNetAssetFromMap(balanceMap, currency))
       }
     }
 
@@ -765,26 +819,29 @@ export class WalletFile {
           map.set(tx.wallet, (map.get(tx.wallet) ?? 0) + tx.amount)
         }
         break
-      case 'transfer':
+      case 'transfer': {
+        const receivedAmount = tx.toAmount ?? tx.amount
         if (tx.category === 'credit_card_payment') {
           if (tx.fromWallet && map.has(tx.fromWallet))
             map.set(tx.fromWallet, (map.get(tx.fromWallet) ?? 0) - tx.amount)
           if (tx.toWallet && map.has(tx.toWallet))
-            map.set(tx.toWallet, (map.get(tx.toWallet) ?? 0) - tx.amount)
+            map.set(tx.toWallet, (map.get(tx.toWallet) ?? 0) - receivedAmount)
         } else {
           if (tx.fromWallet && map.has(tx.fromWallet))
             map.set(tx.fromWallet, (map.get(tx.fromWallet) ?? 0) - tx.amount)
           if (tx.toWallet && map.has(tx.toWallet))
-            map.set(tx.toWallet, (map.get(tx.toWallet) ?? 0) + tx.amount)
+            map.set(tx.toWallet, (map.get(tx.toWallet) ?? 0) + receivedAmount)
         }
         break
+      }
     }
   }
 
-  private computeNetAssetFromMap(map: Map<string, number>): number {
+  private computeNetAssetFromMap(map: Map<string, number>, currency?: Currency): number {
     let net = 0
     for (const w of this.config.wallets) {
       if (!w.includeInNetAsset) continue
+      if (currency && getWalletCurrency(w) !== currency) continue
       const balance = map.get(w.name) ?? 0
       net += w.type === 'creditCard' ? -balance : balance
     }

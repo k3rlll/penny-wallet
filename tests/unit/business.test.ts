@@ -251,4 +251,62 @@ describe('groupByCategory', () => {
     const map = wf.groupByCategory(txs, 'expense')
     expect(map.size).toBe(0)
   })
+
+  it('filters by currency when currency argument is provided', () => {
+    const usdWallet: Wallet = { name: 'USD Bank', type: 'bank', currency: 'USD', initialBalance: 1000, status: 'active', includeInNetAsset: true }
+    const kztWallet: Wallet = { name: 'Kaspi KZT', type: 'bank', currency: 'KZT', initialBalance: 100000, status: 'active', includeInNetAsset: true }
+    const multiWf = makeWalletFile([usdWallet, kztWallet])
+    const txs: Transaction[] = [
+      { date: '04/01', type: 'expense', wallet: 'USD Bank', category: 'Coffee', note: '', amount: 5 },
+      { date: '04/02', type: 'expense', wallet: 'Kaspi KZT', category: 'Coffee', note: '', amount: 2500 },
+    ]
+    expect(multiWf.groupByCategory(txs, 'expense', 'USD').get('Coffee')).toBe(5)
+    expect(multiWf.groupByCategory(txs, 'expense', 'KZT').get('Coffee')).toBe(2500)
+  })
+})
+
+describe('multi-currency & cross-currency transfers', () => {
+  const USD_BANK: Wallet = { name: 'USD Bank', type: 'bank', currency: 'USD', initialBalance: 1000, status: 'active', includeInNetAsset: true }
+  const KZT_BANK: Wallet = { name: 'Kaspi KZT', type: 'bank', currency: 'KZT', initialBalance: 100000, status: 'active', includeInNetAsset: true }
+  const KZT_CARD: Wallet = { name: 'KZT Card', type: 'creditCard', currency: 'KZT', initialBalance: 20000, status: 'active', includeInNetAsset: true }
+
+  it('cross-currency transfer debits fromWallet by amount and credits toWallet by toAmount', () => {
+    const wf = makeWalletFile([USD_BANK, KZT_BANK])
+    const txs: Transaction[] = [
+      { date: '04/10', type: 'transfer', fromWallet: 'USD Bank', toWallet: 'Kaspi KZT', note: 'Exchange', amount: 100, toAmount: 50000 },
+    ]
+    const balances = wf.computeWalletBalances(txs)
+    expect(balances.find(b => b.wallet.name === 'USD Bank')?.balance).toBe(900)
+    expect(balances.find(b => b.wallet.name === 'Kaspi KZT')?.balance).toBe(150000)
+  })
+
+  it('cross-currency credit card payment reduces card debt by toAmount', () => {
+    const wf = makeWalletFile([USD_BANK, KZT_CARD])
+    const txs: Transaction[] = [
+      { date: '04/15', type: 'transfer', category: 'credit_card_payment', fromWallet: 'USD Bank', toWallet: 'KZT Card', note: 'Pay card', amount: 40, toAmount: 20000 },
+    ]
+    const balances = wf.computeWalletBalances(txs)
+    expect(balances.find(b => b.wallet.name === 'USD Bank')?.balance).toBe(960)
+    expect(balances.find(b => b.wallet.name === 'KZT Card')?.balance).toBe(0)
+  })
+
+  it('computeNetAssetsByCurrency separates USD and KZT net assets', () => {
+    const wf = makeWalletFile([USD_BANK, KZT_BANK, KZT_CARD])
+    const balances = wf.computeWalletBalances([])
+    const netByCur = wf.computeNetAssetsByCurrency(balances)
+    expect(netByCur.get('USD')).toBe(1000)
+    expect(netByCur.get('KZT')).toBe(80000) // 100000 - 20000 debt
+  })
+
+  it('computeSummary filters by currency when currency is specified', () => {
+    const wf = makeWalletFile([USD_BANK, KZT_BANK])
+    const txs: Transaction[] = [
+      { date: '04/01', type: 'income', wallet: 'USD Bank', category: 'salary', note: '', amount: 2000 },
+      { date: '04/02', type: 'expense', wallet: 'USD Bank', category: 'Rent', note: '', amount: 500 },
+      { date: '04/03', type: 'income', wallet: 'Kaspi KZT', category: 'salary', note: '', amount: 500000 },
+      { date: '04/04', type: 'expense', wallet: 'Kaspi KZT', category: 'Groceries', note: '', amount: 45000 },
+    ]
+    expect(wf.computeSummary(txs, 'USD')).toEqual({ income: 2000, expense: 500, netAsset: 0 })
+    expect(wf.computeSummary(txs, 'KZT')).toEqual({ income: 500000, expense: 45000, netAsset: 0 })
+  })
 })

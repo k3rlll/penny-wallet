@@ -3,7 +3,7 @@ import { WalletFile } from '../io/WalletFile'
 import { t, formatMonthLabel, formatYearMonth } from '../i18n'
 import { currentYearMonth } from '../utils'
 import { createMetric, renderCard } from './components'
-import { TransactionType } from '../types'
+import { Currency, TransactionType } from '../types'
 import { DETAIL_VIEW_TYPE } from './DetailView'
 import { renderSharedHeader } from './SharedHeader'
 import { Chart } from 'chart.js'
@@ -14,6 +14,7 @@ export const DASHBOARD_VIEW_TYPE = 'penny-wallet-dashboard'
 export class DashboardView extends ItemView {
   private walletFile: WalletFile
   private currentYearMonth: string
+  private selectedCurrency: Currency = 'USD'
   private charts: Chart[] = []
 
   private clearCharts() {
@@ -54,11 +55,15 @@ export class DashboardView extends ItemView {
     contentEl.addClass('pw-dashboard')
 
     const months = getMonthRangeEndingAt(this.currentYearMonth, 6)
+    const currencies = this.walletFile.getActiveCurrencies(true)
+    if (!currencies.includes(this.selectedCurrency)) {
+      this.selectedCurrency = currencies[0] ?? 'USD'
+    }
 
     const [transactions, summaries, netTimeline] = await Promise.all([
       this.walletFile.readMonth(this.currentYearMonth),
-      this.walletFile.getMonthSummaries(months),
-      this.walletFile.getNetAssetTimeline(months),
+      this.walletFile.getMonthSummariesByCurrency(months, this.selectedCurrency),
+      this.walletFile.getNetAssetTimeline(months, this.selectedCurrency),
     ])
 
     renderSharedHeader(contentEl, {
@@ -71,21 +76,37 @@ export class DashboardView extends ItemView {
 
     const dp = this.walletFile.getConfig().decimalPlaces ?? 0
 
-    // ── Monthly metrics ──────────────────────────────────────────────────────
-    let monthIncome = 0, monthExpense = 0
-    for (const tx of transactions) {
-      if (tx.type === 'income') monthIncome += tx.amount
-      if (tx.type === 'expense') monthExpense += tx.amount
-    }
-    const monthBalance = monthIncome - monthExpense
+    // ── Separate monthly metrics per currency ────────────────────────────────
+    for (const cur of currencies) {
+      const summary = this.walletFile.computeSummary(transactions, cur)
+      const monthIncome = summary.income
+      const monthExpense = summary.expense
+      const monthBalance = monthIncome - monthExpense
+      const suffix = currencies.length > 1 ? ` (${cur})` : ''
 
-    const metricsEl = contentEl.createDiv('pw-metrics')
-    createMetric(metricsEl, t('dash.income'),  monthIncome,  'income',  { dp })
-    createMetric(metricsEl, t('dash.expense'), monthExpense, 'expense', { dp })
-    createMetric(metricsEl, t('dash.balance'), monthBalance,
-      monthBalance >= 0 ? 'positive' : 'negative',
-      { dp, hero: true },
-    )
+      const metricsEl = contentEl.createDiv('pw-metrics')
+      createMetric(metricsEl, `${t('dash.income')}${suffix}`,  monthIncome,  'income',  { dp, currency: cur })
+      createMetric(metricsEl, `${t('dash.expense')}${suffix}`, monthExpense, 'expense', { dp, currency: cur })
+      createMetric(metricsEl, `${t('dash.balance')}${suffix}`, monthBalance,
+        monthBalance >= 0 ? 'positive' : 'negative',
+        { dp, hero: true, currency: cur },
+      )
+    }
+
+    // ── Currency selector for charts when multiple currencies exist ──────────
+    if (currencies.length > 1) {
+      const curRow = contentEl.createDiv('pw-type-pills')
+      for (const cur of currencies) {
+        const btn = curRow.createEl('button', {
+          text: t(`label.currency.${cur}`),
+          cls: 'pw-pill pw-pill-color-neutral' + (this.selectedCurrency === cur ? ' is-active' : ''),
+        })
+        btn.addEventListener('click', () => {
+          this.selectedCurrency = cur
+          void this.render()
+        })
+      }
+    }
 
     // ── 6-month bar chart ────────────────────────────────────────────────────
     const data: MonthData[] = months.map(ym => ({
@@ -98,9 +119,10 @@ export class DashboardView extends ItemView {
 
     // ── 2-column grid: bar chart left, pie charts right ─────────────────────
     const grid2 = contentEl.createDiv('pw-grid-2')
+    const chartSuffix = currencies.length > 1 ? ` (${this.selectedCurrency})` : ''
 
     const incExpCard = renderCard(grid2, {
-      title: t('trend.monthlyIncomeExpense'),
+      title: `${t('trend.monthlyIncomeExpense')}${chartSuffix}`,
       className: 'pw-inc-exp-card',
     })
     const incExpChartWrap = incExpCard.createDiv('pw-chart-wrap')
@@ -109,14 +131,14 @@ export class DashboardView extends ItemView {
     // ── Category pies ────────────────────────────────────────────────────────
     const gridRight = grid2.createDiv('pw-grid-right')
 
-    const expenseMap = this.walletFile.groupByCategory(transactions, 'expense')
-    const incomeMap  = this.walletFile.groupByCategory(transactions, 'income')
+    const expenseMap = this.walletFile.groupByCategory(transactions, 'expense', this.selectedCurrency)
+    const incomeMap  = this.walletFile.groupByCategory(transactions, 'income', this.selectedCurrency)
 
-    const expCard = renderCard(gridRight, { title: t('dash.expenseByCategory') })
+    const expCard = renderCard(gridRight, { title: `${t('dash.expenseByCategory')}${chartSuffix}` })
     if (expenseMap.size > 0) this.charts.push(drawPie(expCard, expenseMap, dp, (cat) => { void this.openDetailWithFilter('expense', cat) }, 200))
     else expCard.createEl('p', { text: t('dash.noData'), cls: 'pw-no-data' })
 
-    const incCard = renderCard(gridRight, { title: t('dash.incomeByCategory') })
+    const incCard = renderCard(gridRight, { title: `${t('dash.incomeByCategory')}${chartSuffix}` })
     if (incomeMap.size > 0) this.charts.push(drawPie(incCard, incomeMap, dp, (cat) => { void this.openDetailWithFilter('income', cat) }, 200))
     else incCard.createEl('p', { text: t('dash.noData'), cls: 'pw-no-data' })
   }

@@ -1,5 +1,13 @@
 export type TransactionType = 'expense' | 'income' | 'transfer'
 export type WalletType = 'cash' | 'bank' | 'creditCard'
+export type Currency = 'USD' | 'KZT'
+
+export const SUPPORTED_CURRENCIES: readonly Currency[] = ['USD', 'KZT'] as const
+
+export const CURRENCY_SYMBOLS: Record<Currency, string> = {
+  USD: '$',
+  KZT: '₸',
+}
 
 export interface Transaction {
   date: string        // MM/DD format as stored in markdown (e.g. "04/03")
@@ -11,12 +19,14 @@ export interface Transaction {
   note: string
   tags?: string[]
   amount: number
+  toAmount?: number   // target amount for cross-currency transfers
   createdAt?: string  // ISO 8601 timestamp; absent in data written before this field was added
 }
 
 export interface Wallet {
   name: string
   type: WalletType
+  currency?: Currency     // 'USD' | 'KZT' (defaults to 'USD' when omitted)
   initialBalance: number  // creditCard: positive number = debt amount
   status: 'active' | 'archived'
   includeInNetAsset: boolean  // active wallets always true; archived wallets can be toggled
@@ -60,6 +70,7 @@ export interface PennyWalletConfig {
 export interface TransactionModalParams {
   type?: TransactionType
   amount?: number
+  toAmount?: number
   note?: string
   tags?: string[]
   category?: string
@@ -69,12 +80,8 @@ export interface TransactionModalParams {
   date?: string  // yyyy-mm-dd
 }
 
-// Default category keys
-export const DEFAULT_EXPENSE_CATEGORIES = [
-  'food', 'clothing', 'housing', 'transport', 'education',
-  'entertainment', 'shopping', 'medical', 'cash_expense',
-  'insurance', 'fees', 'tax',
-] as const
+// Default category keys (standard expense categories removed so users define their own)
+export const DEFAULT_EXPENSE_CATEGORIES: readonly string[] = [] as const
 
 export const DEFAULT_INCOME_CATEGORIES = [
   'salary', 'interest', 'side_income', 'bonus', 'lottery',

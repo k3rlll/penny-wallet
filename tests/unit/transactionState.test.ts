@@ -364,3 +364,72 @@ describe('getTransferWalletCandidates', () => {
     expect(toCandidates).toEqual(wallets)
   })
 })
+
+import { isCrossCurrencyTransfer } from '../../src/modal/transactionState'
+import { DEFAULT_EXPENSE_CATEGORIES } from '../../src/types'
+
+describe('DEFAULT_EXPENSE_CATEGORIES & cross-currency transfer validation', () => {
+  it('DEFAULT_EXPENSE_CATEGORIES is empty by default so user defines their own', () => {
+    expect(DEFAULT_EXPENSE_CATEGORIES).toEqual([])
+  })
+
+  const multiCurrencyConfig: PennyWalletConfig = {
+    wallets: [
+      { name: 'USD Cash', type: 'cash', currency: 'USD', status: 'active', initialBalance: 0, includeInNetAsset: true },
+      { name: 'KZT Bank', type: 'bank', currency: 'KZT', status: 'active', initialBalance: 0, includeInNetAsset: true },
+    ],
+    defaultWallet: 'USD Cash',
+    decimalPlaces: 0,
+    tags: [],
+    folderName: 'PennyWallet',
+    autoValidateOnLoad: true,
+    options: {} as never,
+  } as PennyWalletConfig
+
+  it('detects cross-currency transfer between USD and KZT wallets', () => {
+    expect(isCrossCurrencyTransfer(multiCurrencyConfig, 'USD Cash', 'KZT Bank')).toBe(true)
+    expect(isCrossCurrencyTransfer(multiCurrencyConfig, 'USD Cash', 'USD Cash')).toBe(false)
+  })
+
+  it('requires toAmount for cross-currency transfer', () => {
+    const state: TransactionFormState = {
+      date: '2026-05-03',
+      type: 'transfer',
+      wallet: '',
+      fromWallet: 'USD Cash',
+      toWallet: 'KZT Bank',
+      category: 'account_transfer',
+      note: '',
+      tags: [],
+      amount: '100',
+      toAmount: '',
+      isRefund: false,
+    }
+    expect(validateTransactionForm(state, multiCurrencyConfig)).toEqual({
+      ok: false,
+      errorKey: 'err.toAmountRequired',
+    })
+    expect(validateTransactionForm({ ...state, toAmount: '50000' }, multiCurrencyConfig)).toEqual({
+      ok: true,
+    })
+  })
+
+  it('includes toAmount in buildTransactionPayload for cross-currency transfer', () => {
+    const state: TransactionFormState = {
+      date: '2026-05-03',
+      type: 'transfer',
+      wallet: '',
+      fromWallet: 'USD Cash',
+      toWallet: 'KZT Bank',
+      category: 'account_transfer',
+      note: '',
+      tags: [],
+      amount: '100',
+      toAmount: '50000',
+      isRefund: false,
+    }
+    const payload = buildTransactionPayload(state, multiCurrencyConfig)
+    expect(payload.amount).toBe(100)
+    expect(payload.toAmount).toBe(50000)
+  })
+})

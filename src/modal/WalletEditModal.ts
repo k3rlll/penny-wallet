@@ -1,11 +1,13 @@
 import { App, Modal, Notice } from 'obsidian'
-import { Wallet } from '../types'
+import { Currency, SUPPORTED_CURRENCIES, Wallet } from '../types'
 import { t } from '../i18n'
+import { getWalletCurrency } from '../utils'
 
 export class WalletEditModal extends Modal {
   private wallet: Wallet
   private onSave: (patch: Partial<Wallet>) => void | Promise<void>
   private name: string
+  private currency: Currency
   private balance: number
 
   constructor(app: App, wallet: Wallet, onSave: (patch: Partial<Wallet>) => void | Promise<void>) {
@@ -13,6 +15,7 @@ export class WalletEditModal extends Modal {
     this.wallet = wallet
     this.onSave = onSave
     this.name = wallet.name
+    this.currency = getWalletCurrency(wallet)
     this.balance = wallet.initialBalance
   }
 
@@ -46,6 +49,16 @@ export class WalletEditModal extends Modal {
     nameInput.addEventListener('input', () => { this.name = nameInput.value.trim() })
     nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') nameInput.blur() })
 
+    const currencyRow = formEl.createDiv('pw-wallet-edit-field')
+    currencyRow.createEl('label', { text: t('settings.walletCurrency'), cls: 'pw-wallet-edit-label' })
+    const currencySelect = currencyRow.createEl('select', { cls: 'pw-field-input' })
+    for (const cur of SUPPORTED_CURRENCIES) {
+      const opt = currencySelect.createEl('option', { value: cur, text: t(`label.currency.${cur}`) })
+      if (cur === this.currency) opt.selected = true
+    }
+    currencySelect.value = this.currency
+    currencySelect.addEventListener('change', () => { this.currency = currencySelect.value as Currency })
+
     const balanceRow = formEl.createDiv('pw-wallet-edit-field')
     balanceRow.createEl('label', { text: t('settings.initialBalance'), cls: 'pw-wallet-edit-label' })
     const balInput = balanceRow.createEl('input', { type: 'number', cls: 'pw-field-input' })
@@ -73,7 +86,7 @@ export class WalletEditModal extends Modal {
       if (this.wallet.type === 'creditCard' && this.balance < 0) {
         new Notice(t('err.creditNegativeBalanceShort')); return
       }
-      void this.onSave({ name: this.name, initialBalance: this.balance })
+      void this.onSave({ name: this.name, currency: this.currency, initialBalance: this.balance })
       this.close()
     })
     const cancelBtn = btnRow.createEl('button', { text: t('ui.cancel') })

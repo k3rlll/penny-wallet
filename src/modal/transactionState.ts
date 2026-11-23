@@ -1,6 +1,6 @@
 import type { TransactionType, PennyWalletConfig, Transaction, Wallet } from '../types'
 import { translateCategory } from '../i18n'
-import { validateTag, dateToMonthDay } from '../utils'
+import { validateTag, dateToMonthDay, getWalletCurrency } from '../utils'
 
 /**
  * Form state shared between TransactionModal and helpers in this module.
@@ -16,7 +16,20 @@ export interface TransactionFormState {
   note: string
   tags: string[]
   amount: string       // raw input string (not parsed yet)
+  toAmount?: string    // target received amount string for cross-currency transfers
   isRefund: boolean
+}
+
+export function isCrossCurrencyTransfer(
+  config: PennyWalletConfig,
+  fromWalletName: string,
+  toWalletName: string,
+): boolean {
+  if (!fromWalletName || !toWalletName || fromWalletName === toWalletName) return false
+  const fromW = config.wallets.find(w => w.name === fromWalletName)
+  const toW = config.wallets.find(w => w.name === toWalletName)
+  if (!fromW || !toW) return false
+  return getWalletCurrency(fromW) !== getWalletCurrency(toW)
 }
 
 /**
@@ -76,6 +89,7 @@ export function addTagToList(current: string[], raw: string): AddTagResult {
 export type ValidationErrorKey =
   | 'err.invalidDate'
   | 'err.amountRequired'
+  | 'err.toAmountRequired'
   | 'err.amountPositive'
   | 'err.amountInteger'
   | 'err.walletRequired'
@@ -130,6 +144,18 @@ export function validateTransactionForm(
     if (state.fromWallet === state.toWallet) {
       return { ok: false, errorKey: 'err.sameWallet' }
     }
+    if (isCrossCurrencyTransfer(config, state.fromWallet, state.toWallet)) {
+      const toAmount = parseFloat(state.toAmount ?? '')
+      if (!state.toAmount || isNaN(toAmount)) {
+        return { ok: false, errorKey: 'err.toAmountRequired' }
+      }
+      if (toAmount <= 0) {
+        return { ok: false, errorKey: 'err.amountPositive' }
+      }
+      if (dp === 0 && !Number.isInteger(toAmount)) {
+        return { ok: false, errorKey: 'err.amountInteger' }
+      }
+    }
   }
   return { ok: true }
 }
@@ -140,7 +166,11 @@ export function validateTransactionForm(
  *
  * Refund handling: isRefund=true → amount stored as negative.
  */
-export function buildTransactionPayload(state: TransactionFormState): Transaction {
+export function buildTransactionPayload(state: TransactionFormState, config?: PennyWalletConfig): Transaction {
+  const parsedToAmount = state.type === 'transfer' && state.toAmount ? parseFloat(state.toAmount) : undefined
+  const includeToAmount = parsedToAmount !== undefined && !isNaN(parsedToAmount) && (
+    !config || isCrossCurrencyTransfer(config, state.fromWallet, state.toWallet)
+  )
   return {
     date: dateToMonthDay(state.date),
     type: state.type,
@@ -150,6 +180,7 @@ export function buildTransactionPayload(state: TransactionFormState): Transactio
     category:   state.category || undefined,
     note: state.note,
     amount: state.isRefund ? -parseFloat(state.amount) : parseFloat(state.amount),
+    ...(includeToAmount ? { toAmount: parsedToAmount } : {}),
     tags: state.tags.length ? state.tags : undefined,
   }
 }

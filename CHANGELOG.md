@@ -2,6 +2,15 @@
 
 All notable changes to PennyWallet will be documented in this file.
 
+## [0.0.16] - 2026-11-23
+
+### Added
+- Multi-currency accounts support (`USD $` and `KZT ₸`) with separate totals, net assets, and subtotals per currency
+- Cross-currency transfer received amount override when transferring between accounts of different currencies
+
+### Changed
+- Removed default built-in expense categories so users define only their own custom expense categories
+
 ## [0.0.15] - 2026-05-24
 
 ### Fixed

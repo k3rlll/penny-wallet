@@ -1,3 +1,4 @@
+import type { Currency } from '../types'
 import { formatAmount } from '../utils'
 
 export type MetricVariant = 'income' | 'expense' | 'positive' | 'negative' | 'neutral'
@@ -5,6 +6,7 @@ export type MetricVariant = 'income' | 'expense' | 'positive' | 'negative' | 'ne
 export interface MetricOptions {
   hero?: boolean
   dp?: 0 | 2
+  currency?: Currency
 }
 
 export function createMetric(
@@ -14,7 +16,7 @@ export function createMetric(
   variant: MetricVariant,
   options: MetricOptions = {},
 ): HTMLElement {
-  const { hero = false, dp = 0 } = options
+  const { hero = false, dp = 0, currency } = options
   const card = container.createDiv('pw-metric')
   if (hero) {
     card.addClass('pw-metric--hero')
@@ -30,7 +32,7 @@ export function createMetric(
   const valueClass = variant === 'neutral' ? 'pw-metric-value' : `pw-metric-value ${variant}`
 
   card.createEl('div', {
-    text: prefix + formatAmount(Math.abs(value), dp),
+    text: prefix + formatAmount(Math.abs(value), dp, currency),
     cls: valueClass,
   })
 
