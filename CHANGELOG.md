@@ -2,6 +2,11 @@
 
 All notable changes to PennyWallet will be documented in this file.
 
+## [0.0.17] - 2026-11-24
+
+### Changed
+- Store plugin config inside the `PennyWallet/` folder as a visible `PennyWallet/penny-wallet.json` file (with automatic migration from legacy `.penny-wallet.json`) so Git and file managers see and sync it immediately
+
 ## [0.0.16] - 2026-11-23
 
 ### Added

@@ -14,7 +14,8 @@ import {
 import type { Currency, Wallet, FrontmatterIssue, OrphanedWalletIssue, ValidationIssue } from '../types'
 import { getWalletCurrency } from '../utils'
 
-const ROOT_CONFIG_PATH = normalizePath('.penny-wallet.json')
+const DEFAULT_FOLDER_CONFIG_PATH = normalizePath(`${DEFAULT_CONFIG.folderName}/penny-wallet.json`)
+const LEGACY_ROOT_CONFIG_PATH = normalizePath('.penny-wallet.json')
 const TABLE_HEADER = `| Date | Type | Wallet | From | To | Category | Note | Tags | Amount | CreatedAt |
 |------|------|--------|------|----|----------|------|------|--------|-----------|`
 
@@ -214,46 +215,59 @@ export class WalletFile {
 
   // ── Config ──────────────────────────────────────────────────────────────────
 
+  private getConfigPath(): string {
+    return normalizePath(`${this.config.folderName}/penny-wallet.json`)
+  }
+
+  private async readRawConfigPath(path: string): Promise<string | null> {
+    const file = this.app.vault.getFileByPath(path)
+    if (file) {
+      return await this.app.vault.read(file)
+    }
+    const existsOnDisk = await this.app.vault.adapter.exists(path)
+    if (existsOnDisk) {
+      return await this.app.vault.adapter.read(path)
+    }
+    return null
+  }
+
   async loadConfig(): Promise<PennyWalletConfig> {
     this.createdDefaultConfigOnLastLoad = false
 
-    const path = ROOT_CONFIG_PATH
-    const file = this.app.vault.getFileByPath(path)
-
-    if (!file) {
-      // Root dotfiles may be omitted from Obsidian's vault index; adapter access keeps existing configs readable.
-      const existsOnDisk = await this.app.vault.adapter.exists(path)
-      if (existsOnDisk) {
-        try {
-          const raw = await this.app.vault.adapter.read(path)
-          const parsed = JSON.parse(raw) as Partial<PennyWalletConfig>
-          this.config = { ...DEFAULT_CONFIG, ...parsed, options: this.normalizeOptions(parsed) }
-        } catch {
-          this.config = { ...DEFAULT_CONFIG }
-        }
-        return this.config
+    const primaryRaw = await this.readRawConfigPath(DEFAULT_FOLDER_CONFIG_PATH)
+    if (primaryRaw !== null) {
+      try {
+        const parsed = JSON.parse(primaryRaw) as Partial<PennyWalletConfig>
+        this.config = { ...DEFAULT_CONFIG, ...parsed, options: this.normalizeOptions(parsed) }
+      } catch {
+        this.config = { ...DEFAULT_CONFIG }
       }
-
-      // Truly first launch: create locale-aware default config
-      await this.ensureFolder()
-      const cashName = this.getLocaleCashName()
-      this.config = {
-        ...DEFAULT_CONFIG,
-        wallets: [{ ...DEFAULT_CONFIG.wallets[0], name: cashName }],
-        defaultWallet: cashName,
-      }
-      await this.saveConfig()
-      this.createdDefaultConfigOnLastLoad = true
       return this.config
     }
 
-    try {
-      const raw = await this.app.vault.read(file)
-      const parsed = JSON.parse(raw) as Partial<PennyWalletConfig>
-      this.config = { ...DEFAULT_CONFIG, ...parsed, options: this.normalizeOptions(parsed) }
-    } catch {
-      this.config = { ...DEFAULT_CONFIG }
+    // Legacy fallback: migrate root .penny-wallet.json into PennyWallet/penny-wallet.json
+    const legacyRaw = await this.readRawConfigPath(LEGACY_ROOT_CONFIG_PATH)
+    if (legacyRaw !== null) {
+      try {
+        const parsed = JSON.parse(legacyRaw) as Partial<PennyWalletConfig>
+        this.config = { ...DEFAULT_CONFIG, ...parsed, options: this.normalizeOptions(parsed) }
+        await this.saveConfig()
+      } catch {
+        this.config = { ...DEFAULT_CONFIG }
+      }
+      return this.config
     }
+
+    // Truly first launch: create locale-aware default config inside PennyWallet/penny-wallet.json
+    await this.ensureFolder()
+    const cashName = this.getLocaleCashName()
+    this.config = {
+      ...DEFAULT_CONFIG,
+      wallets: [{ ...DEFAULT_CONFIG.wallets[0], name: cashName }],
+      defaultWallet: cashName,
+    }
+    await this.saveConfig()
+    this.createdDefaultConfigOnLastLoad = true
     return this.config
   }
 
@@ -309,7 +323,8 @@ export class WalletFile {
   }
 
   async saveConfig(): Promise<void> {
-    const path = ROOT_CONFIG_PATH
+    await this.ensureFolder()
+    const path = this.getConfigPath()
     const content = JSON.stringify(this.config, null, 2)
     await this.vaultWrite(path, content, true)
   }
@@ -343,7 +358,7 @@ export class WalletFile {
     const folder = this.config.folderName
     if (!this.app.vault.getFolderByPath(folder)) {
       try {
-        await this.app.vault.createFolder(folder)
+        await this.app.vault.createFolder?.(folder)
       } catch (e: unknown) {
         // Ignore "Folder already exists" error from race condition
         if (!(e instanceof Error) || !e.message?.includes('already exists')) {
