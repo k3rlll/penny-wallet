@@ -1,5 +1,5 @@
 import { App, Modal, Notice } from 'obsidian'
-import { Currency, SUPPORTED_CURRENCIES, Wallet } from '../types'
+import { Currency, SUPPORTED_CURRENCIES, Wallet, WalletType } from '../types'
 import { t } from '../i18n'
 import { getWalletCurrency } from '../utils'
 
@@ -7,6 +7,7 @@ export class WalletEditModal extends Modal {
   private wallet: Wallet
   private onSave: (patch: Partial<Wallet>) => void | Promise<void>
   private name: string
+  private type: WalletType
   private currency: Currency
   private balance: number
 
@@ -15,6 +16,7 @@ export class WalletEditModal extends Modal {
     this.wallet = wallet
     this.onSave = onSave
     this.name = wallet.name
+    this.type = wallet.type
     this.currency = getWalletCurrency(wallet)
     this.balance = wallet.initialBalance
   }
@@ -49,6 +51,16 @@ export class WalletEditModal extends Modal {
     nameInput.addEventListener('input', () => { this.name = nameInput.value.trim() })
     nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') nameInput.blur() })
 
+    const typeRow = formEl.createDiv('pw-wallet-edit-field')
+    typeRow.createEl('label', { text: t('settings.walletType'), cls: 'pw-wallet-edit-label' })
+    const typeSelect = typeRow.createEl('select', { cls: 'pw-field-input' })
+    const walletTypes: WalletType[] = ['cash', 'bank', 'creditCard']
+    for (const wt of walletTypes) {
+      const opt = typeSelect.createEl('option', { value: wt, text: t(`label.walletType.${wt}`) })
+      if (wt === this.type) opt.selected = true
+    }
+    typeSelect.value = this.type
+
     const currencyRow = formEl.createDiv('pw-wallet-edit-field')
     currencyRow.createEl('label', { text: t('settings.walletCurrency'), cls: 'pw-wallet-edit-label' })
     const currencySelect = currencyRow.createEl('select', { cls: 'pw-field-input' })
@@ -68,11 +80,17 @@ export class WalletEditModal extends Modal {
     balInput.addEventListener('input', () => { this.balance = parseFloat(balInput.value) || 0 })
     balInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') balInput.blur() })
 
-    formEl.createEl('p', {
-      text: this.wallet.type === 'creditCard'
+    const hintEl = formEl.createEl('p', {
+      text: this.type === 'creditCard'
         ? t('settings.creditBalanceHint')
         : t('settings.cashBankBalanceHint'),
       cls: 'pw-balance-hint pw-wallet-edit-hint',
+    })
+    typeSelect.addEventListener('change', () => {
+      this.type = typeSelect.value as WalletType
+      hintEl.textContent = this.type === 'creditCard'
+        ? t('settings.creditBalanceHint')
+        : t('settings.cashBankBalanceHint')
     })
 
     const btnRow = contentEl.createDiv('pw-btn-row')
@@ -80,13 +98,13 @@ export class WalletEditModal extends Modal {
     saveBtn.dataset['action'] = 'save'
     saveBtn.addEventListener('click', () => {
       if (!this.name) { new Notice(t('err.walletNameEmpty')); return }
-      if ((this.wallet.type === 'cash' || this.wallet.type === 'bank') && this.balance < 0) {
+      if ((this.type === 'cash' || this.type === 'bank') && this.balance < 0) {
         new Notice(t('err.cashBankNegativeBalance')); return
       }
-      if (this.wallet.type === 'creditCard' && this.balance < 0) {
+      if (this.type === 'creditCard' && this.balance < 0) {
         new Notice(t('err.creditNegativeBalanceShort')); return
       }
-      void this.onSave({ name: this.name, currency: this.currency, initialBalance: this.balance })
+      void this.onSave({ name: this.name, type: this.type, currency: this.currency, initialBalance: this.balance })
       this.close()
     })
     const cancelBtn = btnRow.createEl('button', { text: t('ui.cancel') })

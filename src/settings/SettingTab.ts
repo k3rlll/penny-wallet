@@ -430,7 +430,6 @@ export class PennyWalletSettingTab extends PluginSettingTab {
       cardEl,
       t('settings.expenseCategories'),
       expenseCustom,
-      [...incomeCustom, ...transferCustom],
       config.options.categories.expense.default,
       async (updated) => {
         const scrollTop = this.getSettingsScrollTop()
@@ -447,7 +446,6 @@ export class PennyWalletSettingTab extends PluginSettingTab {
       cardEl,
       t('settings.incomeCategories'),
       incomeCustom,
-      [...expenseCustom, ...transferCustom],
       config.options.categories.income.default,
       async (updated) => {
         const scrollTop = this.getSettingsScrollTop()
@@ -464,7 +462,6 @@ export class PennyWalletSettingTab extends PluginSettingTab {
       cardEl,
       t('settings.transferCategories'),
       transferCustom,
-      [...expenseCustom, ...incomeCustom],
       config.options.categories.transfer.default,
       async (updated) => {
         const scrollTop = this.getSettingsScrollTop()
@@ -480,7 +477,6 @@ export class PennyWalletSettingTab extends PluginSettingTab {
     container: HTMLElement,
     title: string,
     categories: string[],
-    otherCategories: string[],
     defaultKeys: readonly string[],
     onChange: (updated: string[]) => void | Promise<void>,
   ) {
@@ -509,9 +505,8 @@ export class PennyWalletSettingTab extends PluginSettingTab {
     addBtn.addEventListener('click', () => {
       const val = input.value.trim()
       if (!val) return
-      if (defaultKeys.includes(val))     { new Notice(t('err.categoryExists')); return }
-      if (categories.includes(val))      { new Notice(t('err.categoryExists')); return }
-      if (otherCategories.includes(val)) { new Notice(t('err.categoryExistsInOtherList')); return }
+      if (defaultKeys.includes(val)) { new Notice(t('err.categoryExists')); return }
+      if (categories.includes(val))  { new Notice(t('err.categoryExists')); return }
       void onChange([...categories, val])
     })
     input.addEventListener('keydown', (e) => {

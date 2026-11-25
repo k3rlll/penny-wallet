@@ -2,6 +2,14 @@
 
 All notable changes to PennyWallet will be documented in this file.
 
+## [0.0.19] - 2026-11-25
+
+### Added
+- Allow editing the account type (`cash`, `bank`, `creditCard`) of an already created account in the Edit Account modal
+
+### Changed
+- Allow adding custom categories with the same name across different transaction types (`expense`, `income`, `transfer`)
+
 ## [0.0.18] - 2026-11-24
 
 ### Fixed
